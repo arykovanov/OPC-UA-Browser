@@ -7,6 +7,10 @@ local traceD = ua.trace.dbg
 local traceI = ua.trace.inf
 local traceE = ua.trace.err
 
+local infOn = clientConfig.logging.services.infOn
+local dbgOn = clientConfig.logging.services.dbgOn
+local errOn = clientConfig.logging.services.errOn
+
 local function isSupportedPolicy(policyUri)
   for _,policy in ipairs(clientConfig.securePolicies) do
     if policy.securityPolicyUri == policyUri then
@@ -18,7 +22,9 @@ end
 local function isSupportedTokenType(userTokenPolicy)
    local type = userTokenPolicy.TokenType
    local policyUri = userTokenPolicy.SecurityPolicyUri
-   traceD(fmt("Check for token policy support: type='%s', policyUri='%s'", type, policyUri))
+   if dbgOn then
+     traceD(fmt("Check for token policy support: type='%s', policyUri='%s'", type, policyUri))
+   end
    local supported = false
    if type == ua.UserTokenType.Anonymous then
       supported = true
@@ -28,10 +34,12 @@ local function isSupportedTokenType(userTokenPolicy)
       supported = policyUri == nil or isSupportedPolicy(policyUri)
    end
 
-   if supported then
-      traceD(fmt("Supported token policy: type='%s', policyUri='%s'", type, policyUri))
-   else
-      traceD(fmt("Unsupported token policy: type='%s', policyUri='%s'", type, policyUri))
+   if infOn then
+      if supported then
+         traceI(fmt("Supported token policy: type='%s', policyUri='%s'", type, policyUri))
+      else
+         traceI(fmt("Unsupported token policy: type='%s', policyUri='%s'", type, policyUri))
+      end
    end
 
    return supported
@@ -43,52 +51,77 @@ local function opcUaClient(wsSock)
    while true do
       local request, err = js:get()
       if not request then
-         tracep(false, 1, "ERROR: Failed to read Request: ", err)
+         if errOn then
+            traceE(fmt("ERROR: Failed to read Request: %s", err))
+         end
          break
       end
 
       if not request.id then
-         tracep(false, 1, "ERROR: Request has no 'id': ", data)
+         if errOn then
+            traceE(fmt("ERROR: Request has no 'id': %s", data))
+         end
          break
       end
 
       local resp = { id = request and request.id }
       if request then
          if request.ConnectEndpoint then
-            traceI("Received Connect request")
+            if infOn then
+               traceI("Received Connect request")
+            end
             local endpointUrl = request.ConnectEndpoint.EndpointUrl
             if endpointUrl then
                if uaClient then
-                  traceI("Closing UA client")
+                  if infOn then
+                     traceI("Closing UA client")
+                  end
                   pcall(function()
                      uaClient:closeSession()
                      uaClient:disconnect()
                   end)
                end
-               traceI("Creating new UA client")
+               if infOn then
+                  traceI("Creating new UA client")
+               end
                clientConfig.cosocketMode = true
-               ua.Tools.printTable("Client configuration", clientConfig, ua.trace.dbg)
+               if dbgOn then
+                  ua.printTable("Client configuration", clientConfig, traceD)
+               end
                -- Cosocket mode will automatically be enabled since are we in cosocket context
                uaClient = ua.newClient(clientConfig)
-               traceI("Connecting to endpoint '".. endpointUrl .. "' transportProfileUri: '" .. (request.ConnectEndpoint.TransportProfileUri or "") .. "'")
+
+               if infOn then
+                  traceI("Connecting to endpoint '".. endpointUrl .. "' transportProfileUri: '" .. (request.ConnectEndpoint.TransportProfileUri or "") .. "'")
+               end
                local result = uaClient:connect(endpointUrl, request.ConnectEndpoint.TransportProfileUri)
                if result then
                   uaClient = nil
-                  traceI(fmt("Connection failed: ", result))
+                  if errOn then
+                     traceE(fmt("Connection failed: %s", result))
+                  end
                   resp.Error = result
                else
-                  traceI("Connected")
+                  if infOn then
+                     traceI("Connected")
+                  end
                end
             else
-               traceE("Error: client sent empty endpoint URL")
+               if errOn then
+                  traceE("Error: client sent empty endpoint URL")
+               end
                resp.Error = "Empty endpointURL"
             end
          else
             if not uaClient then
-               traceE("Error: OPCUA request without calling connectEndpoint")
+               if errOn then
+                  traceE("Error: OPCUA request without calling connectEndpoint")
+               end
                resp.Error = "OPC UA Client not connected"
             elseif request.OpenSecureChannel then
-              traceI("Opening secureChannel")
+              if infOn then
+                 traceI("Opening secureChannel")
+              end
               local timeoutMs = request.OpenSecureChannel.TimeoutMs or 3600000
               local securityPolicyUri = request.OpenSecureChannel.SecurityPolicyUri or ua.SecurityPolicy.None
               local securityMode = request.OpenSecureChannel.SecurityMode or ua.MessageSecurityMode.None
@@ -105,10 +138,14 @@ local function opcUaClient(wsSock)
                  end
               end
             elseif request.CloseSecureChannel then
-              traceI("Closing Secure Channel")
+              if infOn then
+                traceI("Closing Secure Channel")
+              end
               resp.Error = uaClient:closeSecureChannel()
             elseif request.CreateSession then
-              traceI("Creating Session")
+              if infOn then
+                traceI("Creating Session")
+              end
               local sessionName = request.CreateSession.SessionName
               local sessionTimeout = request.CreateSession.SessionTimeout
               resp.Data, resp.Error = uaClient:createSession(sessionName, sessionTimeout)
@@ -133,23 +170,31 @@ local function opcUaClient(wsSock)
                 end
               end
             elseif request.ActivateSession then
-              traceI("Activating Session")
+              if infOn then
+                traceI("Activating Session")
+              end
               resp.Data, resp.Error = uaClient:activateSession(request.ActivateSession.PolicyId, request.ActivateSession.Identity, request.ActivateSession.Secret)
               if resp.Data and resp.Data.ServerNonce then
                 resp.Data.ServerNonce = ba.b64encode(resp.Data.ServerNonce)
               end
             elseif request.CloseSession then
-              traceI("Closing Session")
+              if infOn then
+                traceI("Closing Session")
+              end
               resp.Data, resp.Error = uaClient:closeSession()
             elseif request.GetEndpoints then
-              traceI("Selecting endpoints: ")
+              if infOn then
+                traceI("Selecting endpoints: ")
+              end
               local content, error = uaClient:getEndpoints(request.GetEndpoints)
               if not error then
                 -- Leave only supported secure Policies
-                traceD("Filtering endpoints")
+                if dbgOn then
+                  traceD("Filtering endpoints")
+                end
                 local endpoints = {}
                 for _,endpoint in ipairs(content.Endpoints) do
-                  ua.Tools.printTable("Check endpoint", endpoint, traceD)
+                  ua.printTable("Check endpoint", endpoint, traceD)
                   if not isSupportedPolicy(endpoint.SecurityPolicyUri) then
                       traceD(fmt("Unsupported endpoint: %s", endpoint.SecurityPolicyUri))
                   else
@@ -170,16 +215,24 @@ local function opcUaClient(wsSock)
                   end
                 end
                 content.Endpoints = endpoints
-                traceI(fmt("Supported #%s endpoints", #endpoints))
-                ua.Tools.printTable("Supported Endpoints", content, traceD)
+                if infOn then
+                  traceI(fmt("Supported #%s endpoints", #endpoints))
+                end
+                if dbgOn then
+                  ua.printTable("Supported Endpoints", content, traceD)
+                end
               end
               resp.Data = content
               resp.Error = error
             elseif request.Browse then
-               traceI("Browsing node: "..request.Browse.NodeId)
+               if infOn then
+                 traceI("Browsing node: "..request.Browse.NodeId)
+               end
                resp.Data, resp.Error = uaClient:browse(tostring(request.Browse.NodeId))
             elseif request.Read then
-               traceI("Reading attribute of node: "..tostring(request.Read.NodeId))
+               if infOn then
+                 traceI("Reading attribute of node: "..tostring(request.Read.NodeId))
+               end
                resp.Data, resp.Error = uaClient:read(request.Read.NodeId)
             else
                resp.Error = "Unknown request type"
@@ -189,12 +242,16 @@ local function opcUaClient(wsSock)
          resp.Error = "JSON parse error"
       end
       local data = ba.json.encode(resp)
-      traceD(fmt("Response: %s", data))
+      if dbgOn then
+        traceD(fmt("Response: %s", data))
+      end
       wsSock:write(data, true)
    end
 
    if uaClient then
-      traceI("Closing UA client")
+      if infOn then
+        traceI("Closing UA client")
+      end
       pcall(function()
          uaClient:disconnect()
       end)
@@ -203,7 +260,9 @@ local function opcUaClient(wsSock)
 end
 
 if request:header"Sec-WebSocket-Key" then
-   traceI("New WebSocket connection")
+   if infOn then
+     traceI("New WebSocket connection")
+   end
    local s = ba.socket.req2sock(request)
    if s then
       s:event(opcUaClient,"s")

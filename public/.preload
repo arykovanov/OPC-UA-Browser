@@ -3,7 +3,7 @@ mako.createloader(io)
 tracep(false, 5, "Initializing OPCUA")
 
 local ua = require("opcua.api")
-ua.assertVersion("0.11.1")
+ua.assertVersion("0.12.0")
 local init = require("opcua.init")
 local checkConfig = require("opcua.config")
 local socket = require("socket")
@@ -91,7 +91,6 @@ local function genOPCUACert(certIo, genFunc, hostname, applicationUri, fileName)
 end
 
 local hostname = getHostName()
--- ua.debug()
 
 local clientConfig
 local certIo

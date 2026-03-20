@@ -58,9 +58,9 @@ function opcuaWebSockURL(): string {
   if (process.env.NODE_ENV === 'development') {
     const platform = navigator.userAgent.toLocaleLowerCase()
     if (platform.indexOf("linux") >= 0) {
-      return 'ws://localhost:9357/opcua_client.lsp'
+      return 'ws://localhost:9358/opcua_client.lsp'
     } else if (platform.indexOf("windows") >= 0){
-      return 'ws://localhost/opcua_client.lsp'
+      return 'ws://localhost:9358/opcua_client.lsp'
     }
   }
 
@@ -84,7 +84,7 @@ export const uaApplication = defineStore('uaApplication', () => {
 
   const messagesLog = ref<LogEntryType[]>([])
 
-  const messages = computed(() => messagesLog.value.reverse())
+  const messages = computed(() => messagesLog.value)
 
   function onMessage(type: LogMessageType, e: Error | string) {
     const msg = e instanceof Error ? e.message : e
@@ -187,6 +187,10 @@ export const uaApplication = defineStore('uaApplication', () => {
     }
   }
 
+  function clearMessages() {
+    messagesLog.value.splice(0, messagesLog.value.length)
+  }
+
   return {
     server,
     opcuaWebSockURL,
@@ -197,6 +201,7 @@ export const uaApplication = defineStore('uaApplication', () => {
     connect,
     browse,
     readAttributes,
-    onMessage
+    onMessage,
+    clearMessages
   }
 })
